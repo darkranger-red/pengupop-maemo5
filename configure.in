@@ -1,0 +1,44 @@
+AC_INIT(pengupop,2.2.2)
+AM_INIT_AUTOMAKE
+
+AM_MAINTAINER_MODE
+
+AC_PROG_CC
+AC_PROG_INSTALL
+AC_PROG_MAKE_SET
+
+AC_CANONICAL_HOST
+
+case "$host" in
+
+  *-mingw32*)
+
+    WIN32=1
+
+    ;;
+
+  *-apple-darwin*)
+
+    DARWIN=1
+    ARCHFLAGS="-DDARWIN=1 -arch ppc -arch i386"
+
+    ;;
+
+  *)
+
+# It's somewhat reasonable to assume that if the OS is not Windows or MacOS, it
+# has similar build system to GNU/Linux.
+
+    LINUX=1
+    ARCHFLAGS="-DLINUX=1"
+
+    ;;
+esac
+
+AM_CONDITIONAL(LINUX, [test x$LINUX = x1])
+AM_CONDITIONAL(WIN32, [test x$WIN32 = x1])
+AM_CONDITIONAL(DARWIN, [test x$DARWIN = x1])
+
+AC_SUBST(ARCHFLAGS)
+
+AC_OUTPUT(Makefile)
