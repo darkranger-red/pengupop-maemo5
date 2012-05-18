@@ -1,3 +1,20 @@
+/*  Singleplayer game code.
+    Copyright (C) 2006  Morten Hustveit <morten@rashbox.org>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <SDL/SDL.h>
 
 #include <math.h>
@@ -571,43 +588,51 @@ void play_single_player()
         case SDL_JOYBUTTONDOWN:
           if (event.jbutton.button  == 15 || event.jbutton.button == 0)/* Code same as SDLK_SPACE */
              {
-             if(state == GS_NEUTRAL)
+               if(state == GS_NEUTRAL)
                  {
-                 if(level < sizeof(levels) / sizeof(levels[0]))
-                      {
-                     bonus += levels[level].shoot_bonus;
-                     shoot(&p, random_bubble(&p), (levels[level].mode == GM_INV_GRAVITY) ? 400 : -1);
-                      }
-                 else
-                   shoot(&p, random_bubble(&p), -1);
-                 }
-               
+                   if(level < sizeof(levels) / sizeof(levels[0]))
+                     {
+                       bonus += levels[level].shoot_bonus;
+                       shoot(&p, random_bubble(&p), (levels[level].mode == GM_INV_GRAVITY) ? 400 : -1);
+                     }
+                   else
+                     shoot(&p, random_bubble(&p), -1);
+                 }            
              }
           if (event.jbutton.button  == 13 || event.jbutton.button == 2)/* Code same as SDLK_ESCAPE */
              {
-             if(level == 255)
-               level = saved_level;
+               if(level == 255)
+                 level = saved_level;
 
 #if LINUX || DARWIN
-             if(getenv("HOME"))
+               if(getenv("HOME"))
                  {
-                 char confpath[4096];
+                   char confpath[4096];
+                   strcpy(confpath, getenv("HOME"));
+                   strcat(confpath, "/.pengupoprc");
+                   int fd = open(confpath, O_WRONLY | O_CREAT, 0600);
 
-                 strcpy(confpath, getenv("HOME"));
-                 strcat(confpath, "/.pengupoprc");
-
-                 int fd = open(confpath, O_WRONLY | O_CREAT, 0600);
-
-                 if(fd != -1)
+                   if(fd != -1)
                      {
-                     lseek(fd, 32, SEEK_SET);
-                     write(fd, &level, 1);
-
-                    close(fd);
-                    }
+                       lseek(fd, 32, SEEK_SET);
+                       write(fd, &level, 1);
+                       close(fd);
+                     }
                  }
+#elif defined(WIN32)
+                     {
+                   HKEY k_config;
+
+                   if(ERROR_SUCCESS == RegCreateKey(HKEY_CURRENT_USER, "Software\\Junoplay.com\\Pengupop\\Config", &k_config))
+                     {
+                       char str[64];
+                       snprintf(str, sizeof(str), "%d", (level ^ 0x7236143));
+                       str[63] = 0;
+                       RegSetValueEx(k_config, "bananas", 0, REG_SZ, str, strlen(str));
+                     }
+                     }
 #endif
-            return;
+               return;
              }
            break;
 
@@ -618,9 +643,9 @@ void play_single_player()
               switch (event.jaxis.axis)
                  {
                   case 0:
-                   if (p.right == -1)
+                   if (p.right == -1)/* Code same as SDL_KEYUP:SDLK_LEFT */
                       p.right = 0;
-                   if (p.right == 1)
+                   if (p.right == 1)/* Code same as SDL_KEYUP:SDLK_RIGHT */
                       p.right = 0;
                     break;
                  }
@@ -631,9 +656,9 @@ void play_single_player()
               switch (event.jaxis.axis)
                  {
                   case 0:
-                   if (event.jaxis.value < -22000)/* Code same as SDLK_LEFT */
+                   if (event.jaxis.value < -22000)/* Code same as SDL_KEYDOWN:SDLK_LEFT */
                       p.right = -1;
-                   if (event.jaxis.value > 22000)/* Code same as SDLK_RIGHT */
+                   if (event.jaxis.value > 22000)/* Code same as SDL_KEYDOWN:SDLK_RIGHT */
                       p.right = 1;
                     break;
                  }
@@ -643,7 +668,7 @@ void play_single_player()
         case SDL_KEYDOWN:
 
           switch(event.key.keysym.sym)
-          {
+          { 
           case SDLK_q:
           case SDLK_ESCAPE:
 

@@ -1,3 +1,20 @@
+/*  Pengupop multiplayer game code and entry point.
+    Copyright (C) 2006, 2007, 2008, 2009  Morten Hustveit <morten@rashbox.org>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <SDL/SDL.h>
 
 #ifndef WIN32
@@ -129,7 +146,8 @@ enum mode
 enum mode mode = MODE_MODE_SELECT;
 wchar_t username[17];
 wchar_t password[17];
-wchar_t message[257];
+wchar_t message[258];
+size_t  message_cursor;  // cursor is before message[message_cursor]
 int messageidx;
 int won;
 int is_server;
@@ -200,6 +218,77 @@ static float unpack_float(const unsigned char* a)
   u.ival = (a[0] << 24) | (a[1] << 16) | (a[2] << 8) | a[3];
 
   return u.fval;
+}
+
+// Calculate length of current message
+// Set cursor at end of msg if too far
+size_t message_length()
+{
+  size_t length = 0;
+  while(length < 256 && message[length])
+    ++length;
+  if (message_cursor > length)
+    message_cursor = length;
+  return length;
+}
+
+// Remove char left of cursor, shift end of message (including trailing \0)
+void message_backspace()
+{
+  size_t length = message_length();
+  if (message_cursor > 0)
+  {
+    memmove(message+message_cursor-1,
+            message+message_cursor,
+            sizeof(message[0])*(length-message_cursor+1));
+    --message_cursor;
+  }
+}
+
+// Remove char right of cursor, shift end of message (including \0) :
+void message_delete()
+{
+  size_t length = message_length();
+  if (message_cursor < length)
+  {
+    memmove(message+message_cursor,
+            message+message_cursor+1,
+            sizeof(message[0])*(length-message_cursor));
+  }
+}
+
+
+// Insert char at current position : must shift end of msg
+void message_insert(wchar_t c)
+{
+  size_t length = message_length();
+  if (length < 256)
+  {
+    memmove(message+message_cursor+1,
+            message+message_cursor,
+            sizeof(message[0])*(length-message_cursor+1));
+    message[message_cursor] = c;
+    ++message_cursor;
+  }
+}
+
+// Try to move cursor one char left
+void cursor_left()
+{
+  if (message_cursor > 0)
+  {
+    --message_cursor;
+  }
+}
+
+// Try to move cursor one char right
+void cursor_right()
+{
+  size_t length = message_length();
+  if (message_cursor < length)
+  {
+    ++message_cursor;
+  }
 }
 
 void mark_dirty(struct player_state* p, int x, int y, int width, int height)
@@ -297,6 +386,18 @@ static void chatlog_append(int is_private, const wchar_t* m)
 
   while(length < 256 && m[length])
     ++length;
+
+  // Check for call for fight, or message containing username :
+  // The username is not searched at the beginning, for we are
+  // not interested in detecting our own words.
+  if (wcsncmp(m, L"*** You got a call for fight", 28) == 0)
+  {
+    sounds[0].pos = 0;  // explosion
+  }
+  if (length > 0 && username[0]!=0 && wcsstr(m+1, username) != NULL)
+  {
+    sounds[2].pos = 0;  // piou!
+  }
 
   if(string_width(1, m, length) > CHAT_WIDTH)
   {
@@ -1763,7 +1864,7 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
 #endif
 
 //  if(-1 == SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO))
-    if(-1 == SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK))
+  if(-1 == SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK))
     fatal_error("SDL initialization failed: %s", SDL_GetError());
 
   atexit(SDL_Quit);
@@ -1773,7 +1874,6 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
   SDL_JoystickEventState(SDL_ENABLE);
   if (SDL_NumJoysticks() > 0)
       joystick = SDL_JoystickOpen(0);
-      
 
   screen = SDL_SetVideoMode(width, height, 0, SDL_SWSURFACE | (fullscreen ? SDL_FULLSCREEN : 0));
 
@@ -2358,7 +2458,7 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
       SDL_BlitSurface(logo, &rect, screen, &rect);
 
       print_string(0, 320 + (selection == 0 ? bump : 0), 250, L"Single Player", 1);
-      ///print_string(0, 320 + (selection == 1 ? bump : 0), 290, L"Online Multiplayer", 1);
+      //print_string(0, 320 + (selection == 1 ? bump : 0), 290, L"Online Multiplayer", 1);
       print_string(0, 320 + (selection == 1 ? bump : 0), 290, L"Multiplayer (Not Available)", 1);
       print_string(0, 320 + (selection == 2 ? bump : 0), 330, L"Quit", 1);
     }
@@ -2424,22 +2524,27 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
 
       if(repeat_key && now > repeat_time)
       {
-        int length = 0;
-
         if(auth_level == 3 || mode == MODE_SCORE)
         {
-          while(length < 256 && message[length])
-            ++length;
-
           if(repeat_key == '\b')
           {
-            if(length)
-              message[length - 1] = 0;
+            message_backspace();
           }
-          else if(length < 256)
+          else if(repeat_key == '\v')
           {
-            message[length] = repeat_key;
-            message[length + 1] = 0;
+            message_delete();
+          }
+          else if(repeat_key == '\n')
+          {
+            cursor_left();
+          }
+          else if(repeat_key == '\r')
+          {
+            cursor_right();
+          }
+          else
+          {
+            message_insert(repeat_key);
           }
         }
 
@@ -2490,11 +2595,11 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
             print_string(1, 10, 129 + i * 17, privchatlog[(i + privchatlogpos) % CHAT_LINES], 0);
         }
 
-        size_t length = 0;
+        size_t length = message_length();
         size_t off = 0;
 
-        while(length < 256 && message[length])
-          ++length;
+        if (message_cursor > length)
+          message_cursor = length;
 
         if(string_width(1, message, length) > CHAT_WIDTH)
         {
@@ -2502,17 +2607,23 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
             if(string_width(1, message + off, length - off) < CHAT_WIDTH)
               break;
         }
-#ifndef WIN32
+        // Insert cursor (or space to make it blinking) :
+        memmove(message+message_cursor+1,
+                message+message_cursor,
+                sizeof(message[0])*(length-message_cursor+1));
         if(SDL_GetTicks() % 500 < 400)
-          swprintf(buf, sizeof(buf), L"%ls_", message + off);
+          message[message_cursor] = L'|';
         else
+          message[message_cursor] = L' ';
+#ifndef WIN32
           swprintf(buf, sizeof(buf), L"%ls", message + off);
 #else
-        if(SDL_GetTicks() % 500 < 400)
-          swprintf(buf, L"%ls_", message + off);
-        else
           swprintf(buf, L"%ls", message + off);
 #endif
+        // Remove inserted cursor :
+        memmove(message+message_cursor,
+                message+message_cursor+1,
+                sizeof(message[0])*(length-message_cursor+1));
 
         if(off != 0)
           print_string(1, 2, 455, L"..", 0);
@@ -2667,86 +2778,125 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
       break;
 
       case SDL_JOYAXISMOTION:
-
-      if ((event.jaxis.value < -22000) || (event.jaxis.value > 22000))  
+      if ((event.jaxis.value > -3200) || (event.jaxis.value < 3200))  
          {
           switch (event.jaxis.axis)
              {
               case 0:
-               if (event.jaxis.value < -22000)/* Code same as SDLK_LEFT */
-                  {
-                  if(mode == MODE_GAME)
-                      {
-                      update_movement = 1;
-                      players[0].right = -1;
-                      add_event(tickidx, EVENT_LEFT);
-                      }
+               if (event.jaxis.value > -3200)/* Code same as SDL_KEYUP:SDLK_LEFT */
+                 {
+                   if(players[0].right == -1)
+                     {
+                       update_movement = 1;
+                       players[0].right = 0;
+                       add_event(tickidx, EVENT_LEFT | EVENT_RIGHT);
+                     }
+                 }
+               else if (event.jaxis.value < -3200)/* Code same as SDL_KEYUP:SDLK_RIGHT */    
+                 {
+                   if(players[0].right == 1)
+                     {
+                       update_movement = 1;
+                       players[0].right = 0;
+                       add_event(tickidx, EVENT_LEFT | EVENT_RIGHT);
+                     }
+                 }
+                break;
+            }
+         }
 
-                  }
-              if (event.jaxis.value > 22000)/* Code same as SDLK_RIGHT */
+      if ((event.jaxis.value < -3200) || (event.jaxis.value > 3200))  
+         {
+          switch (event.jaxis.axis)
+             {
+              case 0:
+               if (event.jaxis.value < -3200)/* Code same as SDL_KEYDOWN:SDLK_LEFT */
                   {
-                  if(mode == MODE_GAME)
+                    if(mode == MODE_GAME)
                       {
-                     update_movement = 1;
-                     players[0].right = 1;
-                     add_event(tickidx, EVENT_RIGHT);
+                        update_movement = 1;
+                        players[0].right = -1;
+                        add_event(tickidx, EVENT_LEFT);
                       }
+                    else if(mode == MODE_LOUNGE || mode == MODE_SCORE)
+                      {
+                        cursor_left();
+                        repeat_sym = event.key.keysym.sym;
+                        repeat_key = '\n';
+                        repeat_time = SDL_GetTicks() + 250;
+                      }
+                  }
+              if (event.jaxis.value > 3200)/* Code same as SDL_KEYDOWN:SDLK_RIGHT */
+                  {
+                    if(mode == MODE_GAME)
+                      {
+                        update_movement = 1;
+                        players[0].right = 1;
+                        add_event(tickidx, EVENT_RIGHT);
+                      }
+                    else if(mode == MODE_LOUNGE || mode == MODE_SCORE)
+                     {
+                       cursor_right();
+                       repeat_sym = event.key.keysym.sym;
+                       repeat_key = '\r';
+                       repeat_time = SDL_GetTicks() + 250;
+                     }
                   }
   
               break;
 
               case 1:
           
-               if (event.jaxis.value < -22000)/* Code same as SDLK_UP */
+               if (event.jaxis.value < -3200)/* Code same as SDL_KEYDOWN:SDLK_UP */
                   {
-                  if(mode == MODE_MODE_SELECT || mode == MODE_SINGLEPLAYER_MENU)
+                    if(mode == MODE_MODE_SELECT || mode == MODE_SINGLEPLAYER_MENU)
                       {
-                      last_tick = 0;
+                        last_tick = 0;
 
-                      if(selection == 0)
-                        selection = 2;
-                      else
-                        --selection;
+                        if(selection == 0)
+                          selection = 2;
+                        else
+                          --selection;
                       }
-                  else if(mode == MODE_MAIN_MENU)
+                    else if(mode == MODE_MAIN_MENU)
                       {
-                      last_tick = 0;
+                        last_tick = 0;
 
-                      if(selection == 0)
-                        selection = (auth_level == 3) ? 3 : 2;
-                      else
-                        --selection;
+                        if(selection == 0)
+                          selection = (auth_level == 3) ? 3 : 2;
+                        else
+                          --selection;
                       }
-                  else if(mode == MODE_GAME)
+                    else if(mode == MODE_GAME)
                       {
-                     if(!has_shot && !input_locked)
+                        if(!has_shot && !input_locked)
                           {
-                         update_movement = 1;
-                         has_shot = 1;
-                         shoot(&players[0], -1, -1);
-                         add_event(tickidx, EVENT_SHOOT | players[0].next_bubble);
+                            update_movement = 1;
+                            has_shot = 1;
+                            shoot(&players[0], -1, -1);
+                            add_event(tickidx, EVENT_SHOOT | players[0].next_bubble);
                           }
                       }
                   }
-              if (event.jaxis.value > 22000)/* Code same as SDLK_DOWN */
+              if (event.jaxis.value > 3200)/* Code same as SDL_KEYDOWN:SDLK_DOWN */
                   {
-                  if(mode == MODE_MODE_SELECT || mode == MODE_SINGLEPLAYER_MENU)
+                    if(mode == MODE_MODE_SELECT || mode == MODE_SINGLEPLAYER_MENU)
                       {
-                     last_tick = 0;
+                        last_tick = 0;
 
-                     if(selection == 2)
-                       selection = 0;
-                     else
-                       ++selection;
+                        if(selection == 2)
+                          selection = 0;
+                        else
+                          ++selection;
                       }
-                  else if(mode == MODE_MAIN_MENU)
+                    else if(mode == MODE_MAIN_MENU)
                       {
-                      last_tick = 0;
+                        last_tick = 0;
 
-                      if(selection == ((auth_level == 3) ? 3 : 2))
-                        selection = 0;
-                      else
-                        ++selection;
+                        if(selection == ((auth_level == 3) ? 3 : 2))
+                          selection = 0;
+                        else
+                          ++selection;
                       }
                   }
               break;  
@@ -2757,6 +2907,7 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
       break;
 
       case SDL_KEYDOWN:
+
         if(event.key.keysym.unicode >= 32
         && has_char(0, event.key.keysym.unicode)
         && (mode == MODE_LOUNGE || mode == MODE_SCORE)
@@ -2788,20 +2939,11 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
           }
           else if(auth_level == 3 || mode == MODE_SCORE)
           {
-            while(length < 256 && message[length])
-              ++length;
-
-            if(length < 256)
-            {
-              message[length] = event.key.keysym.unicode;
-              message[length + 1] = 0;
-
-              repeat_sym = event.key.keysym.sym;
-              repeat_key = event.key.keysym.unicode;
-              repeat_time = SDL_GetTicks() + 250;
+            message_insert(event.key.keysym.unicode);
+            repeat_sym = event.key.keysym.sym;
+            repeat_key = event.key.keysym.unicode;
+            repeat_time = SDL_GetTicks() + 250;
             }
-          }
-
           continue;
         }
 
@@ -2811,11 +2953,7 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
         case SDLK_ESCAPE:
 
           if(mode == MODE_MAIN_MENU || mode == MODE_MODE_SELECT || mode == MODE_SINGLEPLAYER_MENU)
-          {
-            //show_splash();
-
             exit(EXIT_SUCCESS);
-          }
           else
           {
             submit_events();
@@ -2944,8 +3082,7 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
 
               if(mode == MODE_SCORE)
               {
-                wchar_t buf[269];
-
+                wchar_t buf[270];
 #ifndef WIN32
                 swprintf(buf, sizeof(buf), L"You: %ls", message);
 #else
@@ -2984,7 +3121,7 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
             }
             else if(selection == 1)
             {
-             mode = MODE_MODE_SELECT;
+              mode = MODE_MODE_SELECT;
               /*selection = 0;
 
               mode = MODE_MAIN_MENU;
@@ -2995,8 +3132,6 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
             }
             else if(selection == 2)
             {
-              //show_splash();
-
               exit(EXIT_SUCCESS);
             }
           }
@@ -3020,8 +3155,6 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
             }
             else if(selection == 2)
             {
-              //show_splash();
-
               exit(EXIT_SUCCESS);
             }
           }
@@ -3043,11 +3176,7 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
               mode = MODE_LOUNGE;
             }
             else if(selection == 2)
-            {
-              //show_splash();
-
               exit(EXIT_SUCCESS);
-            }
             else if(selection == 3)
             {
               struct data_packet p;
@@ -3135,29 +3264,38 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
           break;
 
         case SDLK_LEFT:
-
           if(mode == MODE_GAME)
           {
             update_movement = 1;
             players[0].right = -1;
             add_event(tickidx, EVENT_LEFT);
           }
-
+          else if(mode == MODE_LOUNGE || mode == MODE_SCORE)
+          {
+            cursor_left();
+            repeat_sym = event.key.keysym.sym;
+            repeat_key = '\n';
+            repeat_time = SDL_GetTicks() + 250;
+          }
           break;
 
         case SDLK_RIGHT:
-
           if(mode == MODE_GAME)
           {
             update_movement = 1;
             players[0].right = 1;
             add_event(tickidx, EVENT_RIGHT);
           }
-
+          else if(mode == MODE_LOUNGE || mode == MODE_SCORE)
+          {
+            cursor_right();
+            repeat_sym = event.key.keysym.sym;
+            repeat_key = '\r';
+            repeat_time = SDL_GetTicks() + 250;
+          }
           break;
 
         case SDLK_BACKSPACE:
-
           if(mode == MODE_LOUNGE || mode == MODE_SCORE)
           {
             int length = 0;
@@ -3180,18 +3318,37 @@ int PASCAL WinMain(HINSTANCE instance, HINSTANCE previnstance,
             }
             else if(auth_level == 3 || mode == MODE_SCORE)
             {
-              while(length < 256 && message[length])
-                ++length;
-
-              if(length > 0)
-                message[--length] = 0;
+              message_backspace();
             }
 
             repeat_sym = event.key.keysym.sym;
             repeat_key = '\b';
             repeat_time = SDL_GetTicks() + 250;
           }
+          break;
 
+        case SDLK_DELETE:
+          if((mode == MODE_LOUNGE && auth_level == 3) || mode == MODE_SCORE)
+          {
+            message_delete();
+            repeat_sym = event.key.keysym.sym;
+            repeat_key = '\v';
+            repeat_time = SDL_GetTicks() + 250;
+          }
+          break;
+
+        case SDLK_HOME:
+          if((mode == MODE_LOUNGE && auth_level == 3) || mode == MODE_SCORE)
+          {
+             message_cursor = 0;
+          }
+          break;
+
+        case SDLK_END:
+          if((mode == MODE_LOUNGE && auth_level == 3) || mode == MODE_SCORE)
+          {
+            message_cursor = message_length();
+          }
           break;
 
         case 's':

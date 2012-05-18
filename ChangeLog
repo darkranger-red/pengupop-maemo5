@@ -1,3 +1,15 @@
+pengupop 2.2.5, Mar 19 2009
+
+  * Replaced bin2c with own version to avoid having multiple licenses.
+
+pengupop 2.2.4, Apr  5 2007
+
+  * Mo Maison's bugfixes to his previous patch.
+
+pengupop 2.2.3, Apr  1 2007
+
+  * Improved chat interface, by Mo Maison.
+
 pengupop 2.2.2, Jan 21 2007
 
   * Limit hostile balls to 4 in a more robust fashion.

@@ -5,5 +5,5 @@ Porting Pengupop to Maemo 5.
 
 FEATURES
 ===============
-* Add joystick support
-* More keys
+*Single player mode
+*Joystick support

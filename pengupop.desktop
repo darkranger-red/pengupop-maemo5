@@ -1,11 +1,12 @@
 [Desktop Entry]
-Version=1.0
 Encoding=UTF-8
-Name=Pengupop
-Comment=Networked Game in the vein of Move/Puzzle Bobble
-Exec=pengupop
-StartupNotify=false
-Terminal=false
+Version=2.2.2-1
 Type=Application
-Icon=pengupop.png
-Categories=Application;Game;ArcadeGame;
+Name=Pengupop
+Exec=/usr/bin/pengupop
+Icon=pengupop
+X-Osso-Type=application/x-executable
+X-HildonDesk-ShowInToolbar=true
+X-Osso-Service=pengupop
+Terminal=false
+StartupWMClass=pengupop
